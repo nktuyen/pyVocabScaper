@@ -1,2 +1,2 @@
 # pyWebTextsScaper
-Scab texts from websites
+Scab English vocabularies from multiple sources such as websites, files, databases.

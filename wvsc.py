@@ -43,6 +43,7 @@ locker: Lock = Lock()
 words: dict = {}
 output: str = ''
 handle = None
+verbose: bool = False
 
 def tag_visible(element):
     if element.parent.name in ['style', 'script', 'head', 'title', 'meta', '[document]']:
@@ -77,7 +78,7 @@ def scrap(url: str) -> dict:
         return {}
     
     content_type: str = response.headers.get('content-type')
-    print(f'Content-Type:{content_type}')
+    #print(f'Content-Type:{content_type}')
     if 'text/html' not in content_type.lower():
         return {}
     if not isinstance(response.text, str):
@@ -98,7 +99,9 @@ def scrap(url: str) -> dict:
                     words[voc] = words[voc] + 1
                 else:
                     words[voc] = 1
-                print(f'{voc}:{words[voc]}')
+                if verbose:
+                    print(f'{voc}:{words[voc]}')
+    print(f'Scraped {len(words)} vocabularies from {url}')
     return words
 
 if __name__=="__main__":
@@ -115,7 +118,7 @@ if __name__=="__main__":
         else:
             print(f'Invalid url:{arg}')
             exit(1)
-    verbose: bool = False
+
     if opts.verbose is not None:
         verbose = opts.verbose
 
@@ -221,26 +224,41 @@ if __name__=="__main__":
                 exit(9)
         handle = open(output, 'w')
     
-    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
         future_to_url = (executor.submit(scrap, url) for url in urls)
         for future in concurrent.futures.as_completed(future_to_url):
             try:
-                vocabularies = future.result()
-                words.update(vocabularies)
-                locker.acquire()
-                if isinstance(handle, sqlite3.Connection):
-                    for w in words:
-                        #print(w)
-                        handle.cursor().execute('INSERT INTO vocabularies(name, occurrences) VALUES(?,?)', (w, words[w],))
-                    handle.commit()
-                else:
-                    if output.lower().endswith('.json'):
-                        json.dump(words, handle, indent=4)
-                    else:
+                with locker:
+                    vocabularies = future.result()
+                    words.update(vocabularies)
+                    if isinstance(handle, sqlite3.Connection):
+                        update: bool = False
                         for w in words:
-                            handle.write(f'{w}:{words[w]}\n')
-                    handle.flush()
-                locker.release()
+                            update = False
+                            if verbose:
+                                print(f'SELECT COUNT(*) FROM vocabularies WHERE name="{w}"')
+                            res = handle.cursor().execute(f'SELECT COUNT(*) FROM vocabularies WHERE name=?',(w,))
+                            if (res is not None):
+                                row = res.fetchone()
+                                if verbose:
+                                    print(f'Row:{row}')
+                                if int(row[0]) > 0:
+                                    update = True
+                            if update:
+                                if verbose:
+                                    print(f'UPDATE vocabularies SET occurrences={words[w]} WHERE name="{w}"')
+                                handle.cursor().execute(f'UPDATE vocabularies SET occurrences={words[w]} WHERE name="{w}"')
+                            else:
+                                if verbose:
+                                    print(f'INSERT INTO vocabularies(name, occurrences) VALUES({w},{words[w]})')
+                                handle.cursor().execute('INSERT INTO vocabularies(name, occurrences) VALUES(?,?)', (w, words[w],))
+                            handle.commit()
+                    else:
+                        if output.lower().endswith('.json'):
+                            json.dump(words, handle, indent=4)
+                        else:
+                            for w in words:
+                                handle.write(f'{w}:{words[w]}\n')
+                        handle.flush()
             except Exception as ex:
                 print(f'[Exception]:{ex}')
-                continue

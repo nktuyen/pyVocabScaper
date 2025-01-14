@@ -87,7 +87,7 @@ def scrap(url: str) -> dict:
     soup:bs4.BeautifulSoup = bs4.BeautifulSoup(response.text, 'html.parser')
     response.close()
     dic: enchant.Dict = enchant.Dict('en_US')
-    texts = soup.findAll(text=True)
+    texts = soup.findAll(string=True)
     visible_texts = filter(tag_visible, texts)
     for text in visible_texts:
         vocabs = text.split(' ')
@@ -224,7 +224,7 @@ if __name__=="__main__":
                 exit(9)
         handle = open(output, 'w')
     
-    with concurrent.futures.ProcessPoolExecutor(max_workers=10) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=16) as executor:
         future_to_url = (executor.submit(scrap, url) for url in urls)
         for future in concurrent.futures.as_completed(future_to_url):
             try:
